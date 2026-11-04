@@ -1,4 +1,5 @@
-name = "all-set-tw"
+name = "taiwan-fin-hub"
+account_id = "797f2cc1f13b7cd5ebb3a0ab339607e3"
 main = "apps/worker/src/index.ts"
 compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
@@ -26,8 +27,7 @@ max_concurrency = 1
 [[d1_databases]]
 binding = "DB"
 database_name = "taiwan-fin-hub"
-# database_id is intentionally omitted from this public configuration.
-# Cloudflare automatically provisions or resolves the D1 binding on deploy.
+database_id = "724dd2c6-1115-43ed-9bae-dbc0c0335228"
 migrations_dir = "apps/worker/migrations"
 
 [[durable_objects.bindings]]
