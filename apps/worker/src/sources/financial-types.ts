@@ -7,7 +7,8 @@ import type { BankTransactionStatus } from "@taiwan-fin-hub/shared";
 export interface NetWorthHistoryPoint {
   date: string; // YYYY-MM-DD
   netWorth: number;
-  assetType?: "total" | "stock" | "fund" | "crypto";
+  /** `tw_stock` 只由直接券商寫入，走勢查詢與集保的台股 `stock` 合併後才輸出為 `stock`。 */
+  assetType?: "total" | "stock" | "tw_stock" | "fund" | "crypto";
 }
 
 export interface CreditCardBill {
@@ -61,9 +62,19 @@ export interface InvestmentPosition {
   assetType: AssetType;
   symbol?: string;
   name: string;
+  /** 證券商代碼；來源未能可靠辨識帳戶時留空。 */
+  brokerNo?: string;
+  /** 證券商帳號；來源未能可靠辨識帳戶時留空。 */
+  brokerAccount?: string;
+  /** 市場代碼，例如 TW、US；來源未能可靠辨識市場時留空。 */
+  market?: "TW" | "US" | (string & {});
   quantity?: number;
   marketValue?: number;
   cashBalance?: number;
+  /** 來源提供的持倉成本；無法取得時留空。 */
+  costBasis?: number;
+  /** 來源提供的未實現損益；無法取得時留空。 */
+  unrealizedPnl?: number;
   currency: string;
   asOfDate: string;
   raw?: unknown;
@@ -87,6 +98,8 @@ export interface InvestmentTransaction {
   quantity?: number;
   price?: number;
   amount?: number;
+  /** 來源提供的賣出已實現損益（已扣費稅）；買進或來源沒有完整成本時留空。 */
+  realizedPnl?: number;
   currency: string;
   raw?: unknown;
 }

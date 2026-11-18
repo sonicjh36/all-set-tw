@@ -193,6 +193,38 @@ test.beforeEach(async ({ page }) => {
           quantity: 100,
           currency: "TWD",
         },
+        {
+          id: "trade-2",
+          connectorId: "sinotrade",
+          accountId: "sinotrade:TW:9999:0000001",
+          sourceId: "trade-2",
+          name: "虛構 ETF",
+          assetType: "etf",
+          transactionCode: "S",
+          transactionName: "賣出",
+          tradeDate: "2026-07-15",
+          quantity: 5,
+          price: 120,
+          amount: 597,
+          realizedPnl: 97,
+          currency: "TWD",
+        },
+        {
+          id: "trade-3",
+          connectorId: "sinotrade",
+          accountId: "sinotrade:TW:9999:0000001",
+          sourceId: "trade-3",
+          name: "虛構成長 ETF",
+          assetType: "etf",
+          transactionCode: "S",
+          transactionName: "賣出",
+          tradeDate: "2026-07-01",
+          quantity: 2000,
+          price: 15.11,
+          amount: 30_000,
+          realizedPnl: null,
+          currency: "TWD",
+        },
       ];
     else if (path === "/api/manual-assets" && method === "GET")
       body = manualAssets;
@@ -217,6 +249,24 @@ test.beforeEach(async ({ page }) => {
     ) {
       const assetId = path.split("/")[3]!;
       body = manualAssetHistory.get(assetId) ?? [];
+    } else if (
+      path.match(/^\/api\/manual-assets\/[^/]+\/history$/) &&
+      method === "POST"
+    ) {
+      const assetId = path.split("/")[3]!;
+      const input = route.request().postDataJSON();
+      // 後端以日期 upsert，同一天只留一筆。
+      manualAssetHistory.set(assetId, [
+        ...manualAssetHistory
+          .get(assetId)!
+          .filter((entry) => entry.date !== input.date),
+        input,
+      ]);
+      Object.assign(
+        manualAssets.find((asset) => asset.id === assetId)!,
+        input,
+      );
+      body = { success: true };
     } else if (path === "/api/exchange-rates")
       body = [
         { currency: "USD", rateTwd: 32, updatedAt: "2026-08-08" },
@@ -274,7 +324,12 @@ test("資產清冊區分待繳與未知金額，並可新增手動資產", async
     page.getByRole("heading", { name: "投資組合", exact: true }),
   ).toBeVisible();
   await page.getByRole("tab", { name: "交易紀錄", exact: true }).click();
-  await expect(page.getByText("買進 · 2026/8/1")).toBeVisible();
+  await expect(page.getByText("買進 · 2026/8/1 · 100 股")).toBeVisible();
+  await expect(
+    page.getByText("賣出 · 2026/7/15 · 5 股 · 成交價 120"),
+  ).toBeVisible();
+  await expect(page.getByText("已實現損益 NT$97")).toBeVisible();
+  await expect(page.getByText("損益未提供")).toBeVisible();
 
   // 加密貨幣是獨立大類，依交易所分區且不需展開；投資面板不含加密貨幣。
   await ledger.getByRole("button", { name: /^加密貨幣/ }).click();
@@ -290,11 +345,7 @@ test("資產清冊區分待繳與未知金額，並可新增手動資產", async
 
   await ledger.getByRole("button", { name: /^其他資產/ }).click();
   await expect(ledger.getByRole("button", { name: /^自住房屋/ })).toBeVisible();
-  const manageHistory = ledger.getByRole("button", {
-    name: "管理估值歷史",
-    exact: true,
-  });
-  await manageHistory.click();
+  await ledger.getByRole("button", { name: /^自住房屋/ }).click();
   await expect(
     ledger.getByRole("heading", { name: "估值歷史", exact: true }),
   ).toBeVisible();
@@ -312,4 +363,15 @@ test("資產清冊區分待繳與未知金額，並可新增手動資產", async
   await editor.getByRole("button", { name: "儲存", exact: true }).click();
   await expect(ledger.getByText("緊急預備金", { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/#\/assets$/);
+
+  // 到期回收：估值記為 0 後收進「已結清」，資產與歷史都保留，不必刪除。
+  const reserve = ledger.getByRole("button", { name: /^緊急預備金/ });
+  await reserve.click();
+  await ledger.getByLabel("估值（TWD）").fill("0");
+  await ledger.getByRole("button", { name: "更新估值", exact: true }).click();
+  const settled = ledger.getByRole("button", { name: "已結清（1）" });
+  await expect(settled).toBeVisible();
+  await expect(reserve).toBeHidden();
+  await settled.click();
+  await expect(reserve).toBeVisible();
 });

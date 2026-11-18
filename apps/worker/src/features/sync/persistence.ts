@@ -1,6 +1,8 @@
 import {
   captureStagedActivityBefore,
   captureStagedActivityAfter,
+  removeDuplicateTdccReportActivity,
+  stagedReportedDuplicateTdccTradeSql,
 } from "./reports/activity-capture";
 import {
   createDrizzle,
@@ -274,9 +276,14 @@ const ENTITY_CONFIG: Record<SyncEntityType, EntityConfig> = {
       "asset_type",
       "symbol",
       "name",
+      "broker_no",
+      "broker_account",
+      "market",
       "quantity",
       "market_value",
       "cash_balance",
+      "cost_basis",
+      "unrealized_pnl",
       "currency",
       "as_of_date",
       "raw_payload",
@@ -288,9 +295,14 @@ const ENTITY_CONFIG: Record<SyncEntityType, EntityConfig> = {
       "asset_type",
       "symbol",
       "name",
+      "broker_no",
+      "broker_account",
+      "market",
       "quantity",
       "market_value",
       "cash_balance",
+      "cost_basis",
+      "unrealized_pnl",
       "currency",
       "raw_payload",
       "updated_at",
@@ -316,6 +328,7 @@ const ENTITY_CONFIG: Record<SyncEntityType, EntityConfig> = {
       "quantity",
       "price",
       "amount",
+      "realized_pnl",
       "currency",
       "raw_payload",
       "created_at",
@@ -336,6 +349,7 @@ const ENTITY_CONFIG: Record<SyncEntityType, EntityConfig> = {
       "quantity",
       "price",
       "amount",
+      "realized_pnl",
       "currency",
       "raw_payload",
       "updated_at",
@@ -449,6 +463,13 @@ export async function promoteStagedSyncWrite(
             ),
         ]
       : []),
+    ...ENTITY_ORDER.filter(
+      (entityType) =>
+        entityTypes.has(entityType) &&
+        ENTITY_CONFIG[entityType].conflictColumns.includes("account_id"),
+    ).map((entityType) =>
+      followMovedAccountStatement(db, input.runId, entityType),
+    ),
     ...(input.beforePromoteStatements ?? []),
   ];
   const countResultOffset = beforePromoteStatements.length;
@@ -470,6 +491,9 @@ export async function promoteStagedSyncWrite(
     ...promotionStatements,
     ...(input.afterPromoteStatements ?? []),
     ...captureStagedActivityAfter(db, input.runId),
+    ...(entityTypes.has("investment_transaction")
+      ? removeDuplicateTdccReportActivity(db)
+      : []),
     ...(input.finalizeStatements ?? []),
     db
       .prepare("DELETE FROM sync_write_staging WHERE run_id = ?")
@@ -529,6 +553,30 @@ export async function persistStagedSyncWrite(
   }
 }
 
+/**
+ * id 由寫入當下的帳戶組成，但對帳（例如單卡摘要帳戶併回實體卡）會把既有資料
+ * 搬到別的帳戶而保留 id。來源再次送出相同 id 時沿用既有列目前的帳戶，
+ * 讓計數、活動擷取與 upsert 都對到同一列，而不是新增後撞上 id 主鍵。
+ */
+function followMovedAccountStatement(
+  db: D1Database,
+  runId: string,
+  entityType: SyncEntityType,
+) {
+  const { table } = ENTITY_CONFIG[entityType];
+  return db
+    .prepare(
+      `UPDATE sync_write_staging
+       SET payload = json_set(payload, '$.account_id', target.account_id)
+       FROM ${table} target
+       WHERE sync_write_staging.run_id = ?
+         AND sync_write_staging.entity_type = ?
+         AND target.id = json_extract(sync_write_staging.payload, '$.id')
+         AND target.account_id IS NOT json_extract(sync_write_staging.payload, '$.account_id')`,
+    )
+    .bind(runId, entityType);
+}
+
 function newRecordCountStatement(
   db: D1Database,
   runId: string,
@@ -551,7 +599,12 @@ function newRecordCountStatement(
            SELECT 1
            FROM ${config.table} target
            WHERE ${conflictMatch}
-         )`,
+         )${
+           // 報告已列過永豐那筆的集保買賣不算新增。
+           entityType === "investment_transaction"
+             ? ` AND NOT COALESCE(${stagedReportedDuplicateTdccTradeSql("staging.payload")}, 0)`
+             : ""
+         }`,
     )
     .bind(runId, entityType);
 }

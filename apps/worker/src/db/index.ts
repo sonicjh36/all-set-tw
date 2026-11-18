@@ -4,8 +4,12 @@ export type { AppDatabase } from "./client";
 export * from "./schema";
 export {
   isLatestInvestmentPosition,
-  LATEST_INVESTMENT_POSITION_SCOPES_SQL,
+  LATEST_INVESTMENT_POSITION_IDS_SQL,
 } from "./investment-positions";
+export {
+  isNotSupersededInvestmentTransaction,
+  supersededTdccTradeSql,
+} from "./investment-transactions";
 
 import { eq } from "drizzle-orm";
 import { createDrizzle } from "./client";
@@ -129,6 +133,7 @@ export {
   findNextDueSyncJob,
   markManualSyncFailure,
   markManualSyncSuccess,
+  nextRunAtAfterManualFailure,
   nextSyncRunAt,
   releaseSyncJobLock,
   renewSyncJobLock,

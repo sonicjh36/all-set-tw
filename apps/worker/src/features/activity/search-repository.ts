@@ -1,13 +1,15 @@
-import { createDrizzle } from "../../db";
+import { createDrizzle, isNotSupersededInvestmentTransaction } from "../../db";
 import { sql } from "drizzle-orm";
 
 export interface ActivitySearchInput {
   q: string;
   from?: string;
   to?: string;
-  source?: "all" | "bank" | "card" | "invoice";
+  source?: "all" | "bank" | "card" | "invoice" | "manual";
   flow?: "all" | "income" | "expense";
   category?: string;
+  /** 依顯示的分類名稱篩選；MCP 使用，AI 助理看到的是名稱而非分類 ID。 */
+  categoryLabel?: string;
 }
 
 /** Read bounded candidate days; full same-day context preserves invoice matching. */
@@ -18,6 +20,7 @@ export async function findActivitySearchDays(
   beforeDay?: string,
   inclusive = false,
 ) {
+  // q 為空字串時 instr 恆為真，所有日期都是候選日，由日期範圍與分頁限制讀取量。
   const q = input.q.toLowerCase();
   const from = input.from ?? null;
   const to = input.to ?? null;
@@ -62,6 +65,7 @@ export async function findActivitySearchDays(
       SELECT substr(effective_date, 1, 10) AS day FROM investment_transactions
       WHERE instr(lower(COALESCE(name, '') || ' ' || COALESCE(symbol, '') || ' ' ||
         COALESCE(transaction_name, '') || ' ' || COALESCE(transaction_code, '') || ' 投資'), ${q}) > 0
+        AND ${isNotSupersededInvestmentTransaction()}
     )
     SELECT DISTINCT day FROM candidates
     WHERE day IS NOT NULL AND day != ''
